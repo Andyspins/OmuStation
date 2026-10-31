@@ -31,4 +31,17 @@ public sealed partial class SecretDoublePlusComponent : Component
     /// </summary>
     [DataField]
     public float ChaosScore = 0;
+
+    /// <summary>
+    ///   The minimum amount of chaos to generate at the start per player.
+    ///   Normally used for roundstart antags, but will still generate if they are disabled and will then be spent on midround events.
+    /// </summary>
+    [DataField]
+    public float MinStartingChaos;
+
+    /// <summary>
+    ///   The maximum amount of chaos to generate at the start per player.
+    /// </summary>
+    [DataField]
+    public float MaxStartingChaos;
 }
