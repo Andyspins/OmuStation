@@ -1,4 +1,6 @@
-﻿using Robust.Shared.Serialization.TypeSerializers.Implementations.Custom;
+﻿using Content.Shared.Random;
+using Robust.Shared.Prototypes;
+using Robust.Shared.Serialization.TypeSerializers.Implementations.Custom;
 
 namespace Content.Omu.Server.StationEvents.SecretDoublePlus;
 
@@ -44,4 +46,16 @@ public sealed partial class SecretDoublePlusComponent : Component
     /// </summary>
     [DataField]
     public float MaxStartingChaos;
+
+    /// <summary>
+    ///   Weight table for primary roundstart antags.
+    /// </summary>
+    [DataField]
+    public ProtoId<WeightedRandomPrototype> PrimaryAntagsWeightTable = "SecretPlusPrimary"; // Keep using the old SecretPlus tables for now
+
+    /// <summary>
+    ///   Weight table for roundstart antags picked after the primary.
+    /// </summary>
+    [DataField]
+    public ProtoId<WeightedRandomPrototype> RoundStartAntagsWeightTable = "SecretPlus"; // Keep using the old SecretPlus tables for now
 }
