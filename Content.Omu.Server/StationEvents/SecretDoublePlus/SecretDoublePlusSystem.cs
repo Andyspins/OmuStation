@@ -154,6 +154,12 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
 
         LogMessage($"Chaos score: {scheduler.ChaosScore}, Next event at: {_ticker.RoundDuration() + amt}");
 
+        if (ShouldSkipTick(scheduler))
+        {
+            LogMessage("Skipping event tick");
+            return;
+        }
+
         var chaosDampening = 1f;
         if (scheduler.ChaosScore < 0)
             chaosDampening -= _random.NextFloat(scheduler.SaveChaosBudgetRange);
@@ -161,7 +167,7 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
         var targetChaos = -scheduler.ChaosScore * chaosDampening;
 
         var possibleEvents = GetPossibleEvents(uid);
-        var weights = BuildChaosWeightedDict(scheduler, possibleEvents, targetChaos, true);
+        var weights = BuildChaosWeightedDict(scheduler, possibleEvents, targetChaos);
 
         if (weights.Count == 0)
             return;
@@ -226,18 +232,15 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
         return result;
     }
 
-    private Dictionary<SelectedEvent, float> BuildChaosWeightedDict(SecretDoublePlusComponent scheduler, List<SelectedEvent> events, float targetChaos, bool includeNoOp = false)
+    private Dictionary<SelectedEvent, float> BuildChaosWeightedDict(SecretDoublePlusComponent scheduler, List<SelectedEvent> events, float targetChaos)
     {
-        // TODO: Should this just be an entity instead?
-        if (includeNoOp)
-            events.Add(new SelectedEvent(null, null, 10, -100));
-
         var adjustedWeights = new Dictionary<SelectedEvent, float>();
         foreach (var selected in events)
         {
             // We adjust each event's weight down by checking how far away from the target score it is
-            var difference = MathF.Abs(targetChaos - selected.ChaosScore);
-            var fitScore = MathF.Abs(targetChaos) / (MathF.Abs(targetChaos) + difference);
+            var ratio = MathF.Abs(selected.ChaosScore / targetChaos);
+            var rawFitScore = MathF.Min(ratio, 1 / ratio);
+            var fitScore = MathF.Pow(rawFitScore, scheduler.ChaosMatchingPower);
 
             // For a target chaos of 50, -50 and 150 are equidistant, but overshooting and
             // picking 150 is likely better for the round than picking -50 and moving in the
@@ -274,6 +277,18 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
             return score;
 
         return ruleComp.ChaosScore ?? 0;
+    }
+
+    private bool ShouldSkipTick(SecretDoublePlusComponent scheduler)
+    {
+        if (scheduler.MidRoundSkipChance <= 0f)
+            return false;
+
+        var quotient = MathF.Abs(scheduler.ChaosScore) / scheduler.MidRoundSkipRange;
+        var halvings = MathF.Max(0, quotient - 1);
+
+        var skipChance = MathF.Min(1f, MathF.Pow(0.5f, halvings) * scheduler.MidRoundSkipChance);
+        return _random.Prob(skipChance);
     }
 
     private SelectedEvent PickAndLog(Dictionary<SelectedEvent, float> weights, float? targetChaos = null)

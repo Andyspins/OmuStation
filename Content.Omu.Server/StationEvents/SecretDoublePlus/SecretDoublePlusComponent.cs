@@ -71,6 +71,15 @@ public sealed partial class SecretDoublePlusComponent : Component
     [DataField]
     public float OppositeChaosDirectionEventPenalty = 0.25f;
 
+    [DataField]
+    public float MidRoundSkipChance = 0.5f;
+
+    [DataField]
+    public float MidRoundSkipRange = 250f;
+
+    [DataField]
+    public float ChaosMatchingPower = 1.5f;
+
     /// <summary>
     ///   Weight table for primary roundstart antags.
     /// </summary>
