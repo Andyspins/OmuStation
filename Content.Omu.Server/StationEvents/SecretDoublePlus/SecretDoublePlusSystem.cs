@@ -8,7 +8,6 @@ using Content.Server.Chat.Managers;
 using Content.Server.GameTicking;
 using Content.Server.GameTicking.Rules;
 using Content.Server.StationEvents;
-using Content.Server.StationEvents.Components;
 using Content.Shared.Database;
 using Content.Shared.GameTicking.Components;
 using Content.Shared.Random.Helpers;
@@ -28,16 +27,16 @@ namespace Content.Omu.Server.StationEvents.SecretDoublePlus;
 ///   Temporary class for caching data.
 /// </summary>
 public sealed class SelectedEvent(
-    EntityPrototype proto,
-    GameRuleComponent ruleComp,
+    EntityPrototype? proto,
+    GameRuleComponent? ruleComp,
     float weight,
     float chaosScore)
 {
     /// <summary>
     ///   The station event prototype
     /// </summary>
-    public readonly EntityPrototype Proto = proto;
-    public readonly GameRuleComponent RuleComp = ruleComp;
+    public readonly EntityPrototype? Proto = proto;
+    public readonly GameRuleComponent? RuleComp = ruleComp;
     public readonly float Weight = weight;
     public readonly float ChaosScore = chaosScore;
 }
@@ -107,18 +106,22 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
 
         // TODO: We need to include rule validation
         // Select and start our primary antag
-        var primaryTargetChaos = -scheduler.Comp.ChaosScore;
-        var adjustedPrimaryWeights = BuildChaosWeightedDict(primaryEvents, primaryTargetChaos);
-        var primary = _random.Pick(adjustedPrimaryWeights);
+        var primaryTargetChaos = -scheduler.Comp.ChaosScore * scheduler.Comp.PrimaryAntagBudget;
+        var adjustedPrimaryWeights = BuildChaosWeightedDict(scheduler.Comp, primaryEvents, primaryTargetChaos);
+        var primary = PickAndLog(adjustedPrimaryWeights, primaryTargetChaos);
         StartRule(scheduler, primary, false);
 
         // Keep selecting antags until we've fulfilled our chaos budget
-        var targetChaos = -scheduler.Comp.ChaosScore;
-        var adjustedWeights = BuildChaosWeightedDict(events, targetChaos);
+        var remainingAntagsToPick = scheduler.Comp.AdditionalRoundStartAntags;
+        var targetChaos = -scheduler.Comp.ChaosScore / remainingAntagsToPick;
+        var adjustedWeights = BuildChaosWeightedDict(scheduler.Comp, events, targetChaos);
+
+        adjustedWeights.Remove(primary);
+
         const int iterationGuard = 50; // Cap our iteration count just in-case
         for (var i = 0; scheduler.Comp.ChaosScore < 0 && i < iterationGuard; i++)
         {
-            var pick = _random.Pick(adjustedWeights);
+            var pick = PickAndLog(adjustedWeights, targetChaos);
             adjustedWeights.Remove(pick);
             StartRule(scheduler, pick);
         }
@@ -126,7 +129,12 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
 
     protected override void ActiveTick(EntityUid uid, SecretDoublePlusComponent scheduler, GameRuleComponent gameRule, float frameTime)
     {
-        // TODO: Update current chaos score based on tick
+        var count = CountActivePlayers();
+        var speedup = _event.EventSpeedup;
+
+        // TODO: Count active/unfinished antag objectives as positive chaos score
+        scheduler.ChaosScore += count.Players * scheduler.LivingChaosChange * frameTime * speedup;
+        scheduler.ChaosScore += count.Ghosts * scheduler.DeadChaosChange * frameTime * speedup;
 
         var curTime = _timing.CurTime;
         if (curTime < scheduler.TimeNextEvent)
@@ -146,15 +154,19 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
 
         LogMessage($"Chaos score: {scheduler.ChaosScore}, Next event at: {_ticker.RoundDuration() + amt}");
 
-        var targetChaos = -scheduler.ChaosScore;
-        var possibleEvents = GetPossibleEvents(uid);
-        var weights = BuildChaosWeightedDict(possibleEvents, targetChaos);
+        var chaosDampening = 1f;
+        if (scheduler.ChaosScore < 0)
+            chaosDampening -= _random.NextFloat(scheduler.SaveChaosBudgetRange);
 
-        _sawmill.Info($"Mid-roll weights (size {weights.Count}), weights {weights}");
+        var targetChaos = -scheduler.ChaosScore * chaosDampening;
+
+        var possibleEvents = GetPossibleEvents(uid);
+        var weights = BuildChaosWeightedDict(scheduler, possibleEvents, targetChaos, true);
+
         if (weights.Count == 0)
             return;
 
-        var selected = _random.Pick(weights);
+        var selected = PickAndLog(weights, targetChaos);
         StartRule((uid, scheduler), selected, false);
     }
 
@@ -163,7 +175,9 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
     /// </summary>
     private void StartRule(Entity<SecretDoublePlusComponent> scheduler, SelectedEvent selected, bool doStart = true)
     {
-        LogMessage($"Attempting to run {selected.Proto.ID}, Weight: {selected.Weight}, Chaos Value: {selected.ChaosScore}");
+        if (selected.Proto == null)
+            return;
+
         var ruleUid = _ticker.AddGameRule(selected.Proto.ID);
         scheduler.Comp.ChaosScore += selected.ChaosScore;
         if (doStart)
@@ -193,7 +207,8 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
         if (!TryComp<SelectedGameRulesComponent>(uid, out var selectedRules))
             return [];
 
-        var available = _event.AvailableEvents();
+        // TODO: Replace manual fake with vars
+        var available = _event.AvailableEvents(true, int.MaxValue, TimeSpan.MaxValue);
         if (!_event.TryBuildLimitedEvents(selectedRules.ScheduledGameRules, available, out var possibleEvents))
             return [];
 
@@ -211,16 +226,26 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
         return result;
     }
 
-    private Dictionary<SelectedEvent, float> BuildChaosWeightedDict(List<SelectedEvent> events, float targetChaos)
+    private Dictionary<SelectedEvent, float> BuildChaosWeightedDict(SecretDoublePlusComponent scheduler, List<SelectedEvent> events, float targetChaos, bool includeNoOp = false)
     {
+        // TODO: Should this just be an entity instead?
+        if (includeNoOp)
+            events.Add(new SelectedEvent(null, null, 10, -100));
+
         var adjustedWeights = new Dictionary<SelectedEvent, float>();
         foreach (var selected in events)
         {
-            var ratio = selected.ChaosScore / targetChaos;
-            var absoluteDistance = MathF.Abs(1 - ratio);
+            // We adjust each event's weight down by checking how far away from the target score it is
+            var difference = MathF.Abs(targetChaos - selected.ChaosScore);
+            var fitScore = MathF.Abs(targetChaos) / (MathF.Abs(targetChaos) + difference);
 
-            var chaosAdjustedWeight = selected.Weight / (1 + absoluteDistance);
-            adjustedWeights[selected] = chaosAdjustedWeight;
+            // For a target chaos of 50, -50 and 150 are equidistant, but overshooting and
+            // picking 150 is likely better for the round than picking -50 and moving in the
+            // wrong direction - so we penalize events with flipped signs by a configurable amount
+            if (targetChaos * selected.ChaosScore < 0)
+                fitScore *= scheduler.OppositeChaosDirectionEventPenalty;
+
+            adjustedWeights[selected] = selected.Weight * fitScore;
         }
 
         return adjustedWeights;
@@ -251,12 +276,57 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
         return ruleComp.ChaosScore ?? 0;
     }
 
+    private SelectedEvent PickAndLog(Dictionary<SelectedEvent, float> weights, float? targetChaos = null)
+    {
+        var selected = _random.Pick(weights);
+        var weightSum = weights.Values.Sum();
+        LogMessage(
+            $"Attempting to run {selected.Proto?.ID ?? "NoOp"}, \n" +
+            $"| Chaos Value: {selected.ChaosScore}, \n" +
+            $"| Target Chaos: {targetChaos?.ToString() ?? "N/A"} \n" +
+            $"| Raw Weight: {selected.Weight}, \n" +
+            $"| Chaos Adjusted Weight: {weights[selected]}, \n" +
+            $"| Weight Sum: {weightSum}, \n" +
+            $"| Roll Chance: {weights[selected] / weightSum * 100}%"
+        );
+
+        return selected;
+    }
+
     /// <summary>
     ///   Count all the players on the server.
     /// </summary>
     private int GetTotalPlayerCount(IList<ICommonSession> pool)
     {
         return _antagSelection.GetTotalPlayerCount(pool) + _event.PlayerCountBias;
+    }
+
+    /// <summary>
+    ///   Count the active players and ghosts on the server to determine how chaos changes.
+    /// </summary>
+    private PlayerCount CountActivePlayers()
+    {
+        var allPlayers = _playerManager.Sessions.ToList();
+        var count = new PlayerCount();
+        foreach (var player in allPlayers)
+        {
+            // TODO: A
+            if (player.AttachedEntity != null)
+            {
+                // TODO: Consider a custom component here instead of HumanoidAppearanceComponent to represent
+                //        "significant enough to count as a whole player"
+                if (HasComp<HumanoidAppearanceComponent>(player.AttachedEntity))
+                    count.Players += 1;
+                // don't count bodyless ghosts aka say roundstart spectators
+                // not reliable but works
+                else if (TryComp<GhostComponent>(player.AttachedEntity, out var ghost) && ghost.CanReturnToBody)
+                    count.Ghosts += 1;
+            }
+        }
+
+        count.Players += _event.PlayerCountBias;
+
+        return count;
     }
 
     private void LogMessage(string message, bool showChat=true)

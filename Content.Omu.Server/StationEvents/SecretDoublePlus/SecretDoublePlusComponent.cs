@@ -48,6 +48,30 @@ public sealed partial class SecretDoublePlusComponent : Component
     public float MaxStartingChaos;
 
     /// <summary>
+    ///   How much to change chaos per second per player in control of a humanoid.
+    /// </summary>
+    [DataField]
+    public float LivingChaosChange;
+
+    /// <summary>
+    ///   How much to change chaos per second per player in control of a ghost which can return to a body.
+    /// </summary>
+    [DataField]
+    public float DeadChaosChange;
+
+    [DataField]
+    public float PrimaryAntagBudget = 0.6f;
+
+    [DataField]
+    public int AdditionalRoundStartAntags = 2;
+
+    [DataField]
+    public float SaveChaosBudgetRange = 0.3f;
+
+    [DataField]
+    public float OppositeChaosDirectionEventPenalty = 0.25f;
+
+    /// <summary>
     ///   Weight table for primary roundstart antags.
     /// </summary>
     [DataField]
