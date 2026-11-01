@@ -150,6 +150,10 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
         var possibleEvents = GetPossibleEvents(uid);
         var weights = BuildChaosWeightedDict(possibleEvents, targetChaos);
 
+        _sawmill.Info($"Mid-roll weights (size {weights.Count}), weights {weights}");
+        if (weights.Count == 0)
+            return;
+
         var selected = _random.Pick(weights);
         StartRule((uid, scheduler), selected, false);
     }
@@ -159,6 +163,7 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
     /// </summary>
     private void StartRule(Entity<SecretDoublePlusComponent> scheduler, SelectedEvent selected, bool doStart = true)
     {
+        LogMessage($"Attempting to run {selected.Proto.ID}, Weight: {selected.Weight}, Chaos Value: {selected.ChaosScore}");
         var ruleUid = _ticker.AddGameRule(selected.Proto.ID);
         scheduler.Comp.ChaosScore += selected.ChaosScore;
         if (doStart)
@@ -187,6 +192,7 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
     {
         if (!TryComp<SelectedGameRulesComponent>(uid, out var selectedRules))
             return [];
+
         var available = _event.AvailableEvents();
         if (!_event.TryBuildLimitedEvents(selectedRules.ScheduledGameRules, available, out var possibleEvents))
             return [];
