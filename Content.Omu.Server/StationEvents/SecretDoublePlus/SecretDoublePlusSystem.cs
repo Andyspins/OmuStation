@@ -1,6 +1,7 @@
 ﻿using System.Linq;
 using Content.Goobstation.Common.CCVar;
 using Content.Goobstation.Server.StationEvents.Components;
+using Content.Goobstation.Shared.StationEvents;
 using Content.Server.Administration.Logs;
 using Content.Server.Antag;
 using Content.Server.Antag.Components;
@@ -13,6 +14,7 @@ using Content.Shared.GameTicking.Components;
 using Content.Shared.Random.Helpers;
 using Content.Shared.Ghost;
 using Content.Shared.Humanoid;
+using Content.Shared.Tag;
 using JetBrains.Annotations;
 using Robust.Server.Player;
 using Robust.Shared.Configuration;
@@ -27,16 +29,18 @@ namespace Content.Omu.Server.StationEvents.SecretDoublePlus;
 ///   Temporary class for caching data.
 /// </summary>
 public sealed class SelectedEvent(
-    EntityPrototype? proto,
+    EntityPrototype proto,
     float weight,
-    float chaosScore)
+    float chaosScore,
+    int minPlayers)
 {
     /// <summary>
     ///   The station event prototype
     /// </summary>
-    public readonly EntityPrototype? Proto = proto;
+    public readonly EntityPrototype Proto = proto;
     public readonly float Weight = weight;
     public readonly float ChaosScore = chaosScore;
+    public readonly int MinPlayers = minPlayers;
 }
 
 public sealed class PlayerCount
@@ -60,6 +64,7 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
 
     [Dependency] private readonly AntagSelectionSystem _antagSelection = default!;
     [Dependency] private readonly EventManagerSystem _event = default!;
+    [Dependency] private readonly TagSystem _tag = default!;
     [Dependency] private readonly GameTicker _ticker = default!;
 
     // cvars
@@ -80,8 +85,6 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
 
     protected override void Added(EntityUid uid, SecretDoublePlusComponent scheduler, GameRuleComponent gameRule, GameRuleAddedEvent args)
     {
-        LogMessage("Starting SecretDoublePlus");
-
         var totalPlayers = GetTotalPlayerCount(_playerManager.Sessions);
         scheduler.ChaosScore = -1 *
             _random.NextFloat(scheduler.MinStartingChaos * totalPlayers, scheduler.MaxStartingChaos * totalPlayers) *
@@ -94,34 +97,64 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
 
     private void TrySpawnRoundstartAntags(SecretDoublePlusComponent scheduler)
     {
-        var primaryWeightList = _prototypeManager.Index(scheduler.PrimaryAntagsWeightTable);
-        var primaryWeights = primaryWeightList.Weights.ToDictionary();
+        if (scheduler.NoRoundstartAntags)
+            return;
+
+        // Build weight list for primary antag
+        var primaryWeights = _prototypeManager.Index(scheduler.PrimaryAntagsWeightTable).Weights.ToDictionary();
         var primaryEvents = BuildSelectedEventsFromDict(primaryWeights);
-
-        var weightList = _prototypeManager.Index(scheduler.RoundStartAntagsWeightTable);
-        var weights = weightList.Weights.ToDictionary();
-        var events = BuildSelectedEventsFromDict(weights);
-
-        // TODO: We need to include rule validation
-        // Select and start our primary antag
         var primaryTargetChaos = -scheduler.ChaosScore * scheduler.PrimaryAntagBudget;
-        var adjustedPrimaryWeights = BuildChaosWeightedDict(scheduler, primaryEvents, primaryTargetChaos);
-        var primary = PickAndLog(adjustedPrimaryWeights, primaryTargetChaos);
-        StartRule(scheduler, primary);
 
-        // Keep selecting antags until we've fulfilled our chaos budget
-        var remainingAntagsToPick = scheduler.AdditionalRoundStartAntags;
-        var targetChaos = -scheduler.ChaosScore / remainingAntagsToPick;
-        var adjustedWeights = BuildChaosWeightedDict(scheduler, events, targetChaos);
+        // Build weight for secondary round start antags
+        var secondaryWeights = _prototypeManager.Index(scheduler.RoundStartAntagsWeightTable).Weights.ToDictionary();
+        var secondaryEvents = BuildSelectedEventsFromDict(secondaryWeights);
 
-        adjustedWeights.Remove(primary);
-
+        // Add antags until we get above 0 chaos score
         const int iterationGuard = 50; // Cap our iteration count just in-case
+        var primarySelected = false;
+        var antagsToPick = scheduler.RoundStartAntagCount;
         for (var i = 0; scheduler.ChaosScore < 0 && i < iterationGuard; i++)
         {
-            var pick = PickAndLog(adjustedWeights, targetChaos);
-            adjustedWeights.Remove(pick);
+            var events = primaryEvents;
+            var targetChaos = primaryTargetChaos;
+            if (primarySelected)
+            {
+                events = secondaryEvents;
+                targetChaos = -scheduler.ChaosScore / Math.Max(antagsToPick, 1);
+            }
+
+            var weights = BuildChaosWeightedDict(scheduler, events, targetChaos);
+            var pick = PickAndLog(weights, targetChaos);
+            var isLoneSpawn = IsLoneSpawn(scheduler, pick);
+
+            // We only ever try to select a given rule once across all iterations, even if it fails
+            if (!scheduler.IgnoreIncompatible)
+            {
+                primaryEvents.Remove(pick);
+                secondaryEvents.Remove(pick);
+            }
+
+            if (GameTicker.ReadyPlayerCount() < pick.MinPlayers)
+                continue;
+
+            if (primarySelected && isLoneSpawn)
+                continue;
+
             StartRule(scheduler, pick);
+            primarySelected = true;
+            antagsToPick--;
+
+            // Since we only select a primary antag once, we only remove incompatible antags from the secondary list
+            if (!scheduler.IgnoreIncompatible && _prototypeManager.TryIndex(pick.Proto.ID, out IncompatibleGameModesPrototype? incompatible))
+            {
+                secondaryEvents = secondaryEvents
+                    .Where(w => !incompatible.Modes.Contains(w.Proto.ID))
+                    .ToList();
+            }
+
+            // If we've run out of antags or picked a lone spawn we bail early and stop spawning antags
+            if (secondaryEvents.Count == 0 || isLoneSpawn)
+                return;
         }
     }
 
@@ -179,11 +212,20 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
     /// </summary>
     private void StartRule(SecretDoublePlusComponent scheduler, SelectedEvent selected)
     {
-        if (selected.Proto == null)
-            return;
-
         _ticker.AddGameRule(selected.Proto.ID);
         scheduler.ChaosScore += selected.ChaosScore;
+    }
+
+    private bool IsLoneSpawn(SecretDoublePlusComponent scheduler, SelectedEvent selected)
+    {
+        if (scheduler.IgnoreIncompatible)
+            return false;
+
+        if (!selected.Proto.TryGetComponent<TagComponent>(out var tag, _factory))
+            return false;
+
+        ProtoId<TagPrototype> loneSpawnTag = "LoneRunRule";
+        return _tag.HasTag(tag, loneSpawnTag);
     }
 
     private List<SelectedEvent> BuildSelectedEventsFromDict(Dictionary<string, float> weights)
@@ -198,7 +240,7 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
                 continue;
 
             var chaos = GetChaosScore(entProto, ruleComp);
-            selectedEvents.Add(new SelectedEvent(entProto, weight, chaos));
+            selectedEvents.Add(new SelectedEvent(entProto, weight, chaos, ruleComp.MinPlayers));
         }
 
         return selectedEvents;
@@ -217,12 +259,12 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
         var result = new List<SelectedEvent>();
         foreach (var (proto, eventComp) in possibleEvents)
         {
-            if (!proto.TryGetComponent<GameRuleComponent>(out var gameRule, _factory))
+            if (!proto.TryGetComponent<GameRuleComponent>(out var ruleComp, _factory))
                 continue;
 
-            var chaos = GetChaosScore(proto, gameRule);
+            var chaos = GetChaosScore(proto, ruleComp);
 
-            result.Add(new SelectedEvent(proto, eventComp.Weight, chaos));
+            result.Add(new SelectedEvent(proto, eventComp.Weight, chaos, ruleComp.MinPlayers));
         }
 
         return result;

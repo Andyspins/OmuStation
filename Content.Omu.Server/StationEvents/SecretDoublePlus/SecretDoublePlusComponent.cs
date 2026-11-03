@@ -59,11 +59,24 @@ public sealed partial class SecretDoublePlusComponent : Component
     [DataField]
     public float DeadChaosChange;
 
+    /// <summary>
+    ///   Whether to ignore incompatible roundstart antags. Also permits several of one antag.
+    ///   Use if you want to allow really high amounts of roundstart antags.
+    /// </summary>
+    [DataField]
+    public bool IgnoreIncompatible = false;
+
+    /// <summary>
+    ///   Does this round start with antags at all?
+    /// </summary>
+    [DataField]
+    public bool NoRoundstartAntags = false;
+
     [DataField]
     public float PrimaryAntagBudget = 0.6f;
 
     [DataField]
-    public int AdditionalRoundStartAntags = 2;
+    public int RoundStartAntagCount = 3;
 
     [DataField]
     public float SaveChaosBudgetRange = 0.3f;
