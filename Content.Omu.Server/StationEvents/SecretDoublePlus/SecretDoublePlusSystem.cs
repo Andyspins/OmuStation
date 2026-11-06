@@ -85,11 +85,20 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
 
     protected override void Added(EntityUid uid, SecretDoublePlusComponent scheduler, GameRuleComponent gameRule, GameRuleAddedEvent args)
     {
+        // Set initial chaos score by player count
         var totalPlayers = GetTotalPlayerCount(_playerManager.Sessions);
         scheduler.ChaosScore = -1 *
             _random.NextFloat(scheduler.MinStartingChaos * totalPlayers, scheduler.MaxStartingChaos * totalPlayers) *
             _roundstartChaosScoreMultiplier;
 
+        // Roll chaos change variation, biased towards 1.0
+        var variationRoll = MathF.Pow(_random.NextFloat(), scheduler.ChaosChangeVariationExponent);
+        var bias = _random.Prob(0.5f) ? scheduler.ChaosChangeVariationMin : scheduler.ChaosChangeVariationMax;
+
+        scheduler.ChaosChangeVariation = MathHelper.Lerp(1f, bias, variationRoll);
+        LogMessage($"Using chaos change multiplier of {scheduler.ChaosChangeVariation}");
+
+        // Spawn roundstart antags
         LogMessage($"Initial chaos score: {scheduler.ChaosScore} (based on {totalPlayers} total players)");
         TrySpawnRoundstartAntags(scheduler);
     }
@@ -161,11 +170,13 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
     protected override void ActiveTick(EntityUid uid, SecretDoublePlusComponent scheduler, GameRuleComponent gameRule, float frameTime)
     {
         var count = CountActivePlayers();
+        var ramping = GetRamping(scheduler);
         var speedup = _event.EventSpeedup;
+        var variation = scheduler.ChaosChangeVariation;
 
         // TODO: Count active/unfinished antag objectives as positive chaos score
-        scheduler.ChaosScore += count.Players * scheduler.LivingChaosChange * frameTime * speedup;
-        scheduler.ChaosScore += count.Ghosts * scheduler.DeadChaosChange * frameTime * speedup;
+        scheduler.ChaosScore += count.Players * scheduler.LivingChaosChange * ramping * frameTime * speedup * variation;
+        scheduler.ChaosScore += count.Ghosts * scheduler.DeadChaosChange * frameTime * speedup * variation;
 
         var curTime = _timing.CurTime;
         if (curTime < scheduler.TimeNextEvent)
@@ -180,10 +191,10 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
             return;
         }
 
-        var amt = TimeSpan.FromSeconds(_random.NextDouble(scheduler.EventIntervalMin.TotalSeconds, scheduler.EventIntervalMax.TotalSeconds));
+        var amt = TimeSpan.FromSeconds(_random.NextDouble(scheduler.EventIntervalMin.TotalSeconds, scheduler.EventIntervalMax.TotalSeconds) / ramping / speedup);
         scheduler.TimeNextEvent = curTime + amt;
 
-        LogMessage($"Chaos score: {scheduler.ChaosScore}, Next event at: {_ticker.RoundDuration() + amt}");
+        LogMessage($"Chaos score: {scheduler.ChaosScore}, Next event at: {_ticker.RoundDuration() + amt} (ramping {ramping})");
 
         if (ShouldSkipTick(scheduler))
         {
@@ -197,7 +208,7 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
 
         var targetChaos = -scheduler.ChaosScore * chaosDampening;
 
-        var possibleEvents = GetPossibleEvents(uid);
+        var possibleEvents = GetPossibleEvents(uid, scheduler);
         var weights = BuildChaosWeightedDict(scheduler, possibleEvents, targetChaos);
 
         if (weights.Count == 0)
@@ -246,19 +257,32 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
         return selectedEvents;
     }
 
-    private List<SelectedEvent> GetPossibleEvents(EntityUid uid)
+    private List<SelectedEvent> GetPossibleEvents(EntityUid uid, SecretDoublePlusComponent scheduler)
     {
-        if (!TryComp<SelectedGameRulesComponent>(uid, out var selectedRules))
-            return [];
+        // Get all currently available events
+        int? playerCountOverride = scheduler.IgnoreTimings ? int.MaxValue : null;
+        TimeSpan? currentTimeOverride = scheduler.IgnoreTimings ? TimeSpan.MaxValue : null;
+        var available = _event.AvailableEvents(
+            scheduler.IgnoreTimings,
+            playerCountOverride,
+            currentTimeOverride,
+            1f / GetRamping(scheduler)
+        );
 
-        // TODO: Replace manual fake with vars
-        var available = _event.AvailableEvents(true, int.MaxValue, TimeSpan.MaxValue);
-        if (!_event.TryBuildLimitedEvents(selectedRules.ScheduledGameRules, available, out var possibleEvents))
-            return [];
+        // If we have SelectedGameRules we take an intersect of those and the available events
+        var possibleEvents = available;
 
+        TryComp<SelectedGameRulesComponent>(uid, out var selectedRules);
+        if (selectedRules != null && _event.TryBuildLimitedEvents(selectedRules.ScheduledGameRules, available, out var limitedEvents))
+            possibleEvents = limitedEvents;
+
+        // Construct the final list of Selected Events
         var result = new List<SelectedEvent>();
         foreach (var (proto, eventComp) in possibleEvents)
         {
+            if (scheduler.DisallowedEvents.Contains(eventComp.EventType))
+                continue;
+
             if (!proto.TryGetComponent<GameRuleComponent>(out var ruleComp, _factory))
                 continue;
 
@@ -352,6 +376,11 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
     private int GetTotalPlayerCount(IList<ICommonSession> pool)
     {
         return _antagSelection.GetTotalPlayerCount(pool) + _event.PlayerCountBias;
+    }
+
+    private float GetRamping(SecretDoublePlusComponent scheduler)
+    {
+        return 1f + (float) _ticker.RoundDuration().TotalSeconds * scheduler.SpeedRamping;
     }
 
     /// <summary>

@@ -1,4 +1,5 @@
-﻿using Content.Shared.Random;
+﻿using Content.Goobstation.Common.StationEvents.SecretPlus;
+using Content.Shared.Random;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Serialization.TypeSerializers.Implementations.Custom;
 
@@ -60,11 +61,60 @@ public sealed partial class SecretDoublePlusComponent : Component
     public float DeadChaosChange;
 
     /// <summary>
+    ///   Chaos change multiplier we're using.
+    ///   Affects midround chaos generation over time.
+    ///   Rolled randomly when starting the gamerule.
+    /// </summary>
+    [ViewVariables]
+    public float ChaosChangeVariation = 1f;
+
+    /// <summary>
+    ///   Minimum ChaosChangeVariation to generate at the start.
+    /// </summary>
+    [DataField]
+    public float ChaosChangeVariationMin = 1f;
+
+    /// <summary>
+    ///   Maximum ChaosChangeVariation to generate at the start.
+    /// </summary>
+    [DataField]
+    public float ChaosChangeVariationMax = 1f;
+
+    /// <summary>
+    ///   How much to bias ChaosChangeVariation towards generating closer to 1.
+    ///   Higher values mean it rolls closer to 1, lower values means it rolls farther from 1.
+    /// </summary>
+    [DataField]
+    public float ChaosChangeVariationExponent = 2f;
+
+    /// <summary>
+    ///   How much to ramp up per second.
+    ///   Turns the scheduler into essentially the survival gamemode.
+    ///   Linearly scales chaos point generation, event frequency, and reduces reoccurence delays.
+    ///   For example, if you set this to 1/60, after 60 seconds chaos generation and event frequency will be doubled, and reoccurence delays halved.
+    /// </summary>
+    [DataField]
+    public float SpeedRamping = 0f;
+
+    /// <summary>
+    ///   Whether to ignore whether an event can actually currently run.
+    ///   Will lead to events firing earlier than normal and several times even when normally limited.
+    /// </summary>
+    [DataField]
+    public bool IgnoreTimings = false;
+
+    /// <summary>
     ///   Whether to ignore incompatible roundstart antags. Also permits several of one antag.
     ///   Use if you want to allow really high amounts of roundstart antags.
     /// </summary>
     [DataField]
     public bool IgnoreIncompatible = false;
+
+    /// <summary>
+    ///   All the event types that are disallowed to run.
+    /// </summary>
+    [DataField]
+    public HashSet<ProtoId<EventTypePrototype>> DisallowedEvents = new();
 
     /// <summary>
     ///   Does this round start with antags at all?
