@@ -25,18 +25,12 @@ using Robust.Shared.Timing;
 
 namespace Content.Omu.Server.StationEvents.SecretDoublePlus;
 
-/// <summary>
-///   Temporary class for caching data.
-/// </summary>
 public sealed class SelectedEvent(
     EntityPrototype proto,
     float weight,
     float chaosScore,
     int minPlayers)
 {
-    /// <summary>
-    ///   The station event prototype
-    /// </summary>
     public readonly EntityPrototype Proto = proto;
     public readonly float Weight = weight;
     public readonly float ChaosScore = chaosScore;
@@ -103,6 +97,58 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
         TrySpawnRoundstartAntags(scheduler);
     }
 
+    protected override void ActiveTick(EntityUid uid, SecretDoublePlusComponent scheduler, GameRuleComponent gameRule, float frameTime)
+    {
+        var count = CountActivePlayers();
+        var ramping = GetRamping(scheduler);
+        var speedup = _event.EventSpeedup;
+        var variation = scheduler.ChaosChangeVariation;
+
+        // TODO: Count active/unfinished antag objectives as positive chaos score
+        scheduler.ChaosScore += count.Players * scheduler.LivingChaosChange * ramping * frameTime * speedup * variation;
+        scheduler.ChaosScore += count.Ghosts * scheduler.DeadChaosChange * frameTime * speedup * variation;
+
+        var curTime = _timing.CurTime;
+        if (curTime < scheduler.TimeNextEvent)
+            return;
+
+        // This is the first event, add an automatic delay
+        if (scheduler.TimeNextEvent == TimeSpan.Zero)
+        {
+            var time = _minimumTimeUntilFirstEvent;
+            scheduler.TimeNextEvent = curTime + TimeSpan.FromSeconds(time);
+            LogMessage($"Started, first event in {time} seconds");
+            return;
+        }
+
+        var amt = TimeSpan.FromSeconds(_random.NextDouble(scheduler.EventIntervalMin.TotalSeconds, scheduler.EventIntervalMax.TotalSeconds) / ramping / speedup);
+        scheduler.TimeNextEvent = curTime + amt;
+
+        LogMessage($"Chaos score: {scheduler.ChaosScore}, Next event at: {_ticker.RoundDuration() + amt} (ramping {ramping})");
+
+        if (ShouldSkipTick(scheduler))
+        {
+            LogMessage("Skipping event tick");
+            return;
+        }
+
+        // We multiply the target chaos by a percentage, where the SaveChaosBudgetRange
+        // determines how much chaos budget we should hold back for the next active tick
+        var chaosDampening = 1f;
+        if (scheduler.ChaosScore < 0)
+            chaosDampening -= _random.NextFloat(Math.Clamp(scheduler.SaveChaosBudgetRange, 0f, 1f));
+
+        var targetChaos = -scheduler.ChaosScore * chaosDampening;
+
+        var possibleEvents = GetPossibleEvents(uid, scheduler);
+        var weights = BuildChaosWeightedDict(scheduler, possibleEvents, targetChaos);
+
+        if (weights.Count == 0)
+            return;
+
+        var selected = PickAndLog(weights, targetChaos);
+        StartRule(scheduler, selected);
+    }
 
     private void TrySpawnRoundstartAntags(SecretDoublePlusComponent scheduler)
     {
@@ -168,78 +214,10 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
         }
     }
 
-    protected override void ActiveTick(EntityUid uid, SecretDoublePlusComponent scheduler, GameRuleComponent gameRule, float frameTime)
-    {
-        var count = CountActivePlayers();
-        var ramping = GetRamping(scheduler);
-        var speedup = _event.EventSpeedup;
-        var variation = scheduler.ChaosChangeVariation;
-
-        // TODO: Count active/unfinished antag objectives as positive chaos score
-        scheduler.ChaosScore += count.Players * scheduler.LivingChaosChange * ramping * frameTime * speedup * variation;
-        scheduler.ChaosScore += count.Ghosts * scheduler.DeadChaosChange * frameTime * speedup * variation;
-
-        var curTime = _timing.CurTime;
-        if (curTime < scheduler.TimeNextEvent)
-            return;
-
-        // This is the first event, add an automatic delay
-        if (scheduler.TimeNextEvent == TimeSpan.Zero)
-        {
-            var time = _minimumTimeUntilFirstEvent;
-            scheduler.TimeNextEvent = curTime + TimeSpan.FromSeconds(time);
-            LogMessage($"Started, first event in {time} seconds");
-            return;
-        }
-
-        var amt = TimeSpan.FromSeconds(_random.NextDouble(scheduler.EventIntervalMin.TotalSeconds, scheduler.EventIntervalMax.TotalSeconds) / ramping / speedup);
-        scheduler.TimeNextEvent = curTime + amt;
-
-        LogMessage($"Chaos score: {scheduler.ChaosScore}, Next event at: {_ticker.RoundDuration() + amt} (ramping {ramping})");
-
-        if (ShouldSkipTick(scheduler))
-        {
-            LogMessage("Skipping event tick");
-            return;
-        }
-
-        // We multiply the target chaos by a percentage, where the SaveChaosBudgetRange
-        // determines how much chaos budget we should hold back for the next active tick
-        var chaosDampening = 1f;
-        if (scheduler.ChaosScore < 0)
-            chaosDampening -= _random.NextFloat(scheduler.SaveChaosBudgetRange);
-
-        var targetChaos = -scheduler.ChaosScore * chaosDampening;
-
-        var possibleEvents = GetPossibleEvents(uid, scheduler);
-        var weights = BuildChaosWeightedDict(scheduler, possibleEvents, targetChaos);
-
-        if (weights.Count == 0)
-            return;
-
-        var selected = PickAndLog(weights, targetChaos);
-        StartRule(scheduler, selected);
-    }
-
-    /// <summary>
-    ///   Adds and, optionally, starts a gamerule while respecting rules with variable chaos.
-    /// </summary>
     private void StartRule(SecretDoublePlusComponent scheduler, SelectedEvent selected)
     {
         _ticker.AddGameRule(selected.Proto.ID);
         scheduler.ChaosScore += selected.ChaosScore;
-    }
-
-    private bool IsLoneSpawn(SecretDoublePlusComponent scheduler, SelectedEvent selected)
-    {
-        if (scheduler.IgnoreIncompatible)
-            return false;
-
-        if (!selected.Proto.TryGetComponent<TagComponent>(out var tag, _factory))
-            return false;
-
-        ProtoId<TagPrototype> loneSpawnTag = "LoneRunRule";
-        return _tag.HasTag(tag, loneSpawnTag);
     }
 
     private List<SelectedEvent> BuildSelectedEventsFromDict(Dictionary<string, float> weights)
@@ -275,7 +253,7 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
         // If we have SelectedGameRules we take an intersect of those and the available events
         var possibleEvents = available;
 
-        TryComp<SelectedGameRulesComponent>(uid, out var selectedRules);
+        TryComp<SelectedGameRulesComponent>(uid, out var selectedRules); // Intentionally hoisted for readability
         if (selectedRules != null && _event.TryBuildLimitedEvents(selectedRules.ScheduledGameRules, available, out var limitedEvents))
             possibleEvents = limitedEvents;
 
@@ -303,7 +281,7 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
         foreach (var selected in events)
         {
             // We adjust each event's weight down by checking how far away from the target score it is
-            var ratio = MathF.Abs(selected.ChaosScore / targetChaos);
+            var ratio = MathF.Abs(selected.ChaosScore / targetChaos); // TODO: Guard for division by 0
             var rawFitScore = MathF.Min(ratio, 1 / ratio);
             var fitScore = MathF.Pow(rawFitScore, scheduler.ChaosMatchingPower);
 
@@ -355,6 +333,18 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
         return _random.Prob(skipChance);
     }
 
+    private bool IsLoneSpawn(SecretDoublePlusComponent scheduler, SelectedEvent selected)
+    {
+        if (scheduler.IgnoreIncompatible)
+            return false;
+
+        if (!selected.Proto.TryGetComponent<TagComponent>(out var tag, _factory))
+            return false;
+
+        ProtoId<TagPrototype> loneSpawnTag = "LoneRunRule";
+        return _tag.HasTag(tag, loneSpawnTag);
+    }
+
     private SelectedEvent PickAndLog(Dictionary<SelectedEvent, float> weights, float? targetChaos = null)
     {
         var selected = _random.Pick(weights);
@@ -372,9 +362,6 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
         return selected;
     }
 
-    /// <summary>
-    ///   Count all the players on the server.
-    /// </summary>
     private int GetTotalPlayerCount(IList<ICommonSession> pool)
     {
         return _antagSelection.GetTotalPlayerCount(pool) + _event.PlayerCountBias;
@@ -385,9 +372,6 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
         return 1f + (float) _ticker.RoundDuration().TotalSeconds * scheduler.SpeedRamping;
     }
 
-    /// <summary>
-    ///   Count the active players and ghosts on the server to determine how chaos changes.
-    /// </summary>
     private PlayerCount CountActivePlayers()
     {
         var allPlayers = _playerManager.Sessions.ToList();

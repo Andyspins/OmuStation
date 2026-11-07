@@ -49,6 +49,40 @@ public sealed partial class SecretDoublePlusComponent : Component
     public float MaxStartingChaos;
 
     /// <summary>
+    ///   The exponent applied when weighting events by chaos. Higher values make the scheduler
+    ///   pickier and favors events that keep the chaos score close to 0 on each roll.
+    ///   Lower values make the round more random, which often allows a larger chaos
+    ///   deficit to build before rolling one or more major events.
+    ///
+    ///   Suggested range is [1.0, 4.0], but go crazy if you want to with [0, +inf)
+    /// </summary>
+    [DataField]
+    public float ChaosMatchingPower = 1.5f;
+
+    /// <summary>
+    ///   The percentage of event weight still used when an event moves the overall round chaos score further from 0.
+    ///   Values below 0 ensure we're pushing the round towards equilibrium (intended).
+    ///   Values above 0 prioritize weird snowbally event selection, don't use for serious modes.
+    /// </summary>
+    [DataField]
+    public float OppositeChaosDirectionEventPenalty = 0.25f;
+
+    /// <summary>
+    ///   The percentage of the starting chaos that should roughly be attributed to the primary round antag.
+    ///   This value is used to generate a target chaos score when rolling the primary antag, and the primary
+    ///   antag isn't guaranteed to use exactly this much budget.
+    /// </summary>
+    [DataField]
+    public float PrimaryAntagBudget = 0.6f;
+
+    /// <summary>
+    ///   The number of round start antags the scheduler targets. This is used to generate target chaos scores
+    ///   when rolling for antags, and the scheduler doesn't guarantee exactly this many antags will spawn.
+    /// </summary>
+    [DataField]
+    public int RoundStartAntagCount = 3;
+
+    /// <summary>
     ///   How much to change chaos per second per player in control of a humanoid.
     /// </summary>
     [DataField]
@@ -97,6 +131,34 @@ public sealed partial class SecretDoublePlusComponent : Component
     public float SpeedRamping = 0f;
 
     /// <summary>
+    ///   What percentage of the chaos budget can be saved when calculating the chaos target for a mid-round roll.
+    ///   The per-roll save is rolled randomly from 0 to SaveChaosBudgetRange, and that chunk of chaos budget is shaved off to be held for the next roll.
+    ///   Only used when Chaos is negative. Valid range [0.0, 1.0].
+    /// </summary>
+    [DataField]
+    public float SaveChaosBudgetRange = 0.3f;
+
+    /// <summary>
+    ///   The percentage chance that a mid-round roll should be skipped entirely when close to 0 chaos.
+    ///   This chance reduces smoothly as we get further from 0 chaos, cutting in half for each distance of MidRoundSkipRange magnitude in either direction.
+    /// </summary>
+    [DataField]
+    public float MidRoundSkipChance = 0.5f;
+
+    /// <summary>
+    ///   The magnitude of chaos score at which MidRoundSkipChance halves.
+    ///   As the chaos score gets further from 0 it continues to halve each time the magnitude reaches a multiple of MidRoundSkipRange.
+    /// </summary>
+    [DataField]
+    public float MidRoundSkipRange = 250f;
+
+    /// <summary>
+    ///   Does this round start with antags at all?
+    /// </summary>
+    [DataField]
+    public bool NoRoundstartAntags = false;
+
+    /// <summary>
     ///   Whether to ignore whether an event can actually currently run.
     ///   Will lead to events firing earlier than normal and several times even when normally limited.
     /// </summary>
@@ -115,33 +177,6 @@ public sealed partial class SecretDoublePlusComponent : Component
     /// </summary>
     [DataField]
     public HashSet<ProtoId<EventTypePrototype>> DisallowedEvents = new();
-
-    /// <summary>
-    ///   Does this round start with antags at all?
-    /// </summary>
-    [DataField]
-    public bool NoRoundstartAntags = false;
-
-    [DataField]
-    public float PrimaryAntagBudget = 0.6f;
-
-    [DataField]
-    public int RoundStartAntagCount = 3;
-
-    [DataField]
-    public float SaveChaosBudgetRange = 0.3f;
-
-    [DataField]
-    public float OppositeChaosDirectionEventPenalty = 0.25f;
-
-    [DataField]
-    public float MidRoundSkipChance = 0.5f;
-
-    [DataField]
-    public float MidRoundSkipRange = 250f;
-
-    [DataField]
-    public float ChaosMatchingPower = 1.5f;
 
     /// <summary>
     ///   Weight table for primary roundstart antags.
