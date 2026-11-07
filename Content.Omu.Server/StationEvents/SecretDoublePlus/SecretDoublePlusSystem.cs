@@ -44,7 +44,6 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
     [Dependency] private readonly IComponentFactory _factory = default!;
     [Dependency] private readonly IChatManager _chat = default!;
     [Dependency] private readonly IConfigurationManager _cfg = default!;
-    [Dependency] private readonly IEntitySystemManager _systemManager = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
     [Dependency] private readonly ILogManager _log = default!;
     [Dependency] private readonly IPlayerManager _playerManager = default!;
@@ -95,7 +94,7 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
 
         foreach (var factor in scheduler.ChaosFactors)
         {
-            factor.Initialize(_systemManager);
+            factor.Initialize();
         }
     }
 

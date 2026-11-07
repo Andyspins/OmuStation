@@ -3,7 +3,7 @@
 [ImplicitDataDefinitionForInheritors]
 public abstract partial class ChaosFactor
 {
-    public virtual void Initialize(IEntitySystemManager systemManager)
+    public virtual void Initialize()
     {
         IoCManager.InjectDependencies(this);
     }
