@@ -1,4 +1,5 @@
 ﻿using Content.Goobstation.Common.StationEvents.SecretPlus;
+using Content.Omu.Server.StationEvents.SecretDoublePlus.ChaosFactors;
 using Content.Shared.Random;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Serialization.TypeSerializers.Implementations.Custom;
@@ -189,4 +190,7 @@ public sealed partial class SecretDoublePlusComponent : Component
     /// </summary>
     [DataField]
     public ProtoId<WeightedRandomPrototype> RoundStartAntagsWeightTable = "SecretPlus"; // Keep using the old SecretPlus tables for now
+
+    [DataField]
+    public List<ChaosFactor> ChaosFactors;
 }

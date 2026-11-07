@@ -3,6 +3,7 @@ using Content.Goobstation.Common.CCVar;
 using Content.Goobstation.Server.StationEvents.Components;
 using Content.Goobstation.Shared.StationEvents;
 using Content.Omu.Common.CCVar;
+using Content.Omu.Server.StationEvents.SecretDoublePlus.ChaosFactors;
 using Content.Server.Administration.Logs;
 using Content.Server.Antag;
 using Content.Server.Antag.Components;
@@ -13,8 +14,6 @@ using Content.Server.StationEvents;
 using Content.Shared.Database;
 using Content.Shared.GameTicking.Components;
 using Content.Shared.Random.Helpers;
-using Content.Shared.Ghost;
-using Content.Shared.Humanoid;
 using Content.Shared.Tag;
 using JetBrains.Annotations;
 using Robust.Server.Player;
@@ -38,12 +37,6 @@ public sealed class SelectedEvent(
     public readonly int MinPlayers = minPlayers;
 }
 
-public sealed class PlayerCount
-{
-    public int Players;
-    public int Ghosts;
-}
-
 [UsedImplicitly]
 public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComponent>
 {
@@ -51,6 +44,7 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
     [Dependency] private readonly IComponentFactory _factory = default!;
     [Dependency] private readonly IChatManager _chat = default!;
     [Dependency] private readonly IConfigurationManager _cfg = default!;
+    [Dependency] private readonly IEntitySystemManager _systemManager = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
     [Dependency] private readonly ILogManager _log = default!;
     [Dependency] private readonly IPlayerManager _playerManager = default!;
@@ -98,18 +92,23 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
         // Spawn roundstart antags
         LogMessage($"Initial chaos score: {scheduler.ChaosScore} (based on {totalPlayers} total players)");
         TrySpawnRoundstartAntags(scheduler);
+
+        foreach (var factor in scheduler.ChaosFactors)
+        {
+            factor.Initialize(_systemManager);
+        }
     }
 
     protected override void ActiveTick(EntityUid uid, SecretDoublePlusComponent scheduler, GameRuleComponent gameRule, float frameTime)
     {
-        var count = CountActivePlayers();
         var ramping = GetRamping(scheduler);
         var speedup = _event.EventSpeedup;
         var variation = scheduler.ChaosChangeVariation;
 
-        // TODO: Count active/unfinished antag objectives as positive chaos score
-        scheduler.ChaosScore += count.Players * scheduler.LivingChaosChange * ramping * frameTime * speedup * variation;
-        scheduler.ChaosScore += count.Ghosts * scheduler.DeadChaosChange * frameTime * speedup * variation;
+        foreach (var factor in scheduler.ChaosFactors)
+        {
+            scheduler.ChaosScore += factor.CalculateChaos(new ChaosContext(ramping)) * frameTime * speedup * variation;
+        }
 
         var curTime = _timing.CurTime;
         if (curTime < scheduler.TimeNextEvent)
@@ -383,31 +382,6 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
     private float GetRamping(SecretDoublePlusComponent scheduler)
     {
         return 1f + (float) _ticker.RoundDuration().TotalSeconds * scheduler.SpeedRamping;
-    }
-
-    private PlayerCount CountActivePlayers()
-    {
-        var allPlayers = _playerManager.Sessions.ToList();
-        var count = new PlayerCount();
-        foreach (var player in allPlayers)
-        {
-            // TODO: A
-            if (player.AttachedEntity != null)
-            {
-                // TODO: Consider a custom component here instead of HumanoidAppearanceComponent to represent
-                //        "significant enough to count as a whole player"
-                if (HasComp<HumanoidAppearanceComponent>(player.AttachedEntity))
-                    count.Players += 1;
-                // don't count bodyless ghosts aka say roundstart spectators
-                // not reliable but works
-                else if (TryComp<GhostComponent>(player.AttachedEntity, out var ghost) && ghost.CanReturnToBody)
-                    count.Ghosts += 1;
-            }
-        }
-
-        count.Players += _event.PlayerCountBias;
-
-        return count;
     }
 
     private void LogMessage(string message, bool showChat=true)
