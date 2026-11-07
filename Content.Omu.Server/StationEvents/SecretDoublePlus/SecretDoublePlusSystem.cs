@@ -2,6 +2,7 @@
 using Content.Goobstation.Common.CCVar;
 using Content.Goobstation.Server.StationEvents.Components;
 using Content.Goobstation.Shared.StationEvents;
+using Content.Omu.Common.CCVar;
 using Content.Server.Administration.Logs;
 using Content.Server.Antag;
 using Content.Server.Antag.Components;
@@ -64,6 +65,7 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
     // cvars
     private float _minimumTimeUntilFirstEvent;
     private float _roundstartChaosScoreMultiplier;
+    private bool _verboseGameDirectoryChatLogs;
 
     private ISawmill _sawmill = default!;
 
@@ -75,6 +77,7 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
 
         Subs.CVar(_cfg, GoobCVars.MinimumTimeUntilFirstEvent, value => _minimumTimeUntilFirstEvent = value, true);
         Subs.CVar(_cfg, GoobCVars.RoundstartChaosScoreMultiplier, value => _roundstartChaosScoreMultiplier = value, true);
+        Subs.CVar(_cfg, OmuCVars.VerboseGameDirectorChatLogs, value => _verboseGameDirectoryChatLogs = value, true);
     }
 
     protected override void Added(EntityUid uid, SecretDoublePlusComponent scheduler, GameRuleComponent gameRule, GameRuleAddedEvent args)
@@ -179,6 +182,9 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
             }
 
             var weights = BuildChaosWeightedDict(scheduler, events, targetChaos);
+            if (weights.Count == 0)
+                return;
+
             var pick = PickAndLog(weights, targetChaos);
             var isLoneSpawn = IsLoneSpawn(scheduler, pick);
 
@@ -278,10 +284,13 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
     private Dictionary<SelectedEvent, float> BuildChaosWeightedDict(SecretDoublePlusComponent scheduler, List<SelectedEvent> events, float targetChaos)
     {
         var adjustedWeights = new Dictionary<SelectedEvent, float>();
+        if (targetChaos == 0)
+            return adjustedWeights;
+
         foreach (var selected in events)
         {
             // We adjust each event's weight down by checking how far away from the target score it is
-            var ratio = MathF.Abs(selected.ChaosScore / targetChaos); // TODO: Guard for division by 0
+            var ratio = MathF.Abs(selected.ChaosScore / targetChaos);
             var rawFitScore = MathF.Min(ratio, 1 / ratio);
             var fitScore = MathF.Pow(rawFitScore, scheduler.ChaosMatchingPower);
 
@@ -348,16 +357,20 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
     private SelectedEvent PickAndLog(Dictionary<SelectedEvent, float> weights, float? targetChaos = null)
     {
         var selected = _random.Pick(weights);
-        var weightSum = weights.Values.Sum();
-        LogMessage(
-            $"Attempting to run {selected.Proto?.ID ?? "NoOp"}, \n" +
-            $"| Chaos Value: {selected.ChaosScore}, \n" +
-            $"| Target Chaos: {targetChaos?.ToString() ?? "N/A"} \n" +
-            $"| Raw Weight: {selected.Weight}, \n" +
-            $"| Chaos Adjusted Weight: {weights[selected]}, \n" +
-            $"| Weight Sum: {weightSum}, \n" +
-            $"| Roll Chance: {weights[selected] / weightSum * 100}%"
-        );
+
+        if (_verboseGameDirectoryChatLogs)
+        {
+            var weightSum = weights.Values.Sum();
+            LogMessage(
+                $"Attempting to run {selected.Proto?.ID ?? "NoOp"} \n" +
+                $"| Chaos Value: {selected.ChaosScore} \n" +
+                $"| Target Chaos: {targetChaos?.ToString() ?? "N/A"} \n" +
+                $"| Raw Weight: {selected.Weight} \n" +
+                $"| Chaos Adjusted Weight: {weights[selected]} \n" +
+                $"| Weight Sum: {weightSum} \n" +
+                $"| Roll Chance: {weights[selected] / weightSum * 100}%"
+            );
+        }
 
         return selected;
     }

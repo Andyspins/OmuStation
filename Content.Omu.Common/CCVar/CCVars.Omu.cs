@@ -53,4 +53,11 @@ public sealed partial class OmuCVars
     /// </summary>
     public static readonly CVarDef<float> GunLagCompRange =
         CVarDef.Create("omu.gun_lag_comp_range", 0.6f, CVar.SERVER | CVar.SERVERONLY);
+
+    /// <summary>
+    ///     Whether verbose logs should be output to Admin Chat when a game director is rolling antags.
+    ///     Used by SecretDoublePlus.
+    /// </summary>
+    public static readonly CVarDef<bool> VerboseGameDirectorChatLogs =
+        CVarDef.Create("omu.verbose_game_director_chat_logs", false, CVar.SERVER | CVar.REPLICATED);
 }
