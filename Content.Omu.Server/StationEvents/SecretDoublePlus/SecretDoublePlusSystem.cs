@@ -146,6 +146,7 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
             if (GameTicker.ReadyPlayerCount() < pick.MinPlayers)
                 continue;
 
+            // If primarySelected is true we've already spawned at least one thing, so a loneSpawn is invalid
             if (primarySelected && isLoneSpawn)
                 continue;
 
@@ -202,6 +203,8 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
             return;
         }
 
+        // We multiply the target chaos by a percentage, where the SaveChaosBudgetRange
+        // determines how much chaos budget we should hold back for the next active tick
         var chaosDampening = 1f;
         if (scheduler.ChaosScore < 0)
             chaosDampening -= _random.NextFloat(scheduler.SaveChaosBudgetRange);
@@ -304,9 +307,10 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
             var rawFitScore = MathF.Min(ratio, 1 / ratio);
             var fitScore = MathF.Pow(rawFitScore, scheduler.ChaosMatchingPower);
 
-            // For a target chaos of 50, -50 and 150 are equidistant, but overshooting and
-            // picking 150 is likely better for the round than picking -50 and moving in the
-            // wrong direction - so we penalize events with flipped signs by a configurable amount
+            // For a target chaos of 50, -50 and 150 are equidistant.
+            // Picking 150 is likely better for the round than picking -50 and moving
+            // our chaos score in the wrong direction.
+            // Thus, we penalize events with flipped signs by a configurable amount.
             if (targetChaos * selected.ChaosScore < 0)
                 fitScore *= scheduler.OppositeChaosDirectionEventPenalty;
 
@@ -319,9 +323,8 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
     private float GetChaosScore(EntityPrototype ruleProto, GameRuleComponent ruleComp)
     {
         if (!ruleProto.TryGetComponent<AntagSelectionComponent>(out var selection, _factory))
-            return ruleComp.ChaosScore ?? 0;
+            return ruleComp.ChaosScore ?? 1;
 
-        var any = false;
         var score = 0f;
 
         var players = GetTotalPlayerCount(_playerManager.Sessions);
@@ -330,15 +333,14 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
             if (def.ChaosScore == null)
                 continue;
 
-            any = true;
             var count = _antagSelection.GetTargetAntagCount((EntityUid.Invalid, selection), players, def);
             score += def.ChaosScore.Value * count;
         }
 
-        if (any)
+        if (score > 0)
             return score;
 
-        return ruleComp.ChaosScore ?? 0;
+        return ruleComp.ChaosScore ?? 1;
     }
 
     private bool ShouldSkipTick(SecretDoublePlusComponent scheduler)
