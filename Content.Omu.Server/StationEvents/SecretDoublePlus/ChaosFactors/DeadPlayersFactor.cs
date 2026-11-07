@@ -17,7 +17,7 @@ public sealed partial class DeadPlayersFactor : ChaosFactor
     [DataField]
     public float DeadChaosChange;
 
-    public override float CalculateChaos(ChaosContext context)
+    protected override float CalculateChaos(ChaosContext context)
     {
         var playerCount = 0;
         foreach (var player in _playerManager.Sessions.ToList())

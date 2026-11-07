@@ -106,7 +106,7 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
 
         foreach (var factor in scheduler.ChaosFactors)
         {
-            scheduler.ChaosScore += factor.CalculateChaos(new ChaosContext(ramping)) * frameTime * speedup * variation;
+            scheduler.ChaosScore += factor.CalculateTimeAdjustedChaos(new ChaosContext(frameTime, ramping)) * speedup * variation;
         }
 
         var curTime = _timing.CurTime;
