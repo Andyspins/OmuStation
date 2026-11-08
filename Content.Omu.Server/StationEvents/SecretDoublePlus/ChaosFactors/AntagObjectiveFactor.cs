@@ -1,6 +1,13 @@
 ﻿using System.Linq;
+using Content.Goobstation.Server.Blob.Objectives;
+using Content.Goobstation.Server.Changeling.Objectives.Components;
+using Content.Goobstation.Server.Devil.Objectives.Components;
+using Content.Goobstation.Server.Objectives;
+using Content.Goobstation.Shared.SlaughterDemon.Objectives;
 using Content.Omu.Common.CCVar;
 using Content.Omu.Shared.StationEvents.SecretDoublePlus;
+using Content.Server._Goobstation.Objectives.Components;
+using Content.Server._Starlight.Objectives;
 using Content.Server.Chat.Managers;
 using Content.Server.Objectives.Components;
 using Content.Shared.Mind;
@@ -20,14 +27,39 @@ internal static class ChaosTypeMaps
 {
     internal static readonly Dictionary<string, AmbientPresenceChaosType> Presence = new()
     {
+        { "Chimera", AmbientPresenceChaosType.Chimera },
+        { "LetoferolSleeper", AmbientPresenceChaosType.Chimera },
+        { "Conspirator", AmbientPresenceChaosType.Conspirator },
+        { "Wizard", AmbientPresenceChaosType.Wizard },
+        { "Xenoborg", AmbientPresenceChaosType.Xenoborg },
+        { "Xenomorph", AmbientPresenceChaosType.Xenomorph },
+        { "XenomorphsInfestationRoundstart", AmbientPresenceChaosType.Xenomorph },
         { "InitialInfected", AmbientPresenceChaosType.Zombie },
         { "Zombie", AmbientPresenceChaosType.Zombie },
     };
 
     internal static readonly Dictionary<Type, AmbientObjectiveChaosType> Objectives = new()
     {
-        { typeof(StealConditionComponent), AmbientObjectiveChaosType.Steal },
+        { typeof(BlobCaptureConditionComponent), AmbientObjectiveChaosType.Blob },
+
+        { typeof(MeetContractWeightConditionComponent), AmbientObjectiveChaosType.Contract },
+        { typeof(SignContractConditionComponent), AmbientObjectiveChaosType.Contract },
+
+        { typeof(CosmicConversionConditionComponent), AmbientObjectiveChaosType.Conversion },
+        { typeof(CosmicTierConditionComponent), AmbientObjectiveChaosType.Conversion },
+
+        { typeof(AbsorbConditionComponent), AmbientObjectiveChaosType.Kill },
+        { typeof(AbsorbChangelingConditionComponent), AmbientObjectiveChaosType.Kill },
+        { typeof(HereticSacrificeConditionComponent), AmbientObjectiveChaosType.Kill },
         { typeof(KillPersonConditionComponent), AmbientObjectiveChaosType.Kill },
+        { typeof(StealDNAConditionComponent), AmbientObjectiveChaosType.Kill },
+        { typeof(SlaughterDevourConditionComponent), AmbientObjectiveChaosType.Kill },
+        { typeof(SlaughterKillEveryoneConditionComponent), AmbientObjectiveChaosType.Kill },
+        { typeof(TeachALessonConditionComponent), AmbientObjectiveChaosType.Kill },
+
+        { typeof(DetonateNukeConditionComponent), AmbientObjectiveChaosType.Nuke },
+
+        { typeof(StealConditionComponent), AmbientObjectiveChaosType.Steal },
     };
 }
 

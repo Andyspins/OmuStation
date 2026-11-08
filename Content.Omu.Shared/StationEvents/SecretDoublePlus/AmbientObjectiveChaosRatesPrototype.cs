@@ -17,13 +17,21 @@ public sealed partial class AmbientObjectiveChaosRatesPrototype : IPrototype
 
 public enum AmbientObjectiveChaosType
 {
+    Blob,
+    Contract,
+    Conversion,
     Kill,
+    Nuke,
     Steal,
 }
 
 public enum AmbientPresenceChaosType
 {
     Chimera,
+    Conspirator,
+    Wizard,
+    Xenoborg,
+    Xenomorph,
     Zombie,
 }
 
