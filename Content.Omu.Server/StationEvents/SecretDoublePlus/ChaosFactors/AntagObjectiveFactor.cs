@@ -1,5 +1,6 @@
 ﻿using System.Linq;
 using Content.Server.Chat.Managers;
+using Content.Server.Objectives.Components;
 using Content.Shared.Mind;
 using Content.Shared.Mobs.Systems;
 using Content.Shared.Objectives.Systems;
@@ -10,7 +11,7 @@ using Robust.Shared.Timing;
 namespace Content.Omu.Server.StationEvents.SecretDoublePlus.ChaosFactors;
 
 [DataDefinition]
-public sealed partial class ObjectiveAmbientChaos
+public sealed partial class AmbientObjectiveChaos
 {
     [DataField]
     public float Chaos = 0;
@@ -22,22 +23,33 @@ public sealed partial class ObjectiveAmbientChaos
     public TimeSpan DecayPeriod = TimeSpan.Zero;
 }
 
+public enum AmbientObjectiveChaosType
+{
+    Steal,
+    Kill,
+}
+
 [UsedImplicitly]
 public sealed partial class AntagObjectiveFactor : ChaosFactor
 {
+    [Dependency] private readonly IChatManager _chat = default!;
     [Dependency] private readonly IEntityManager _entityManager = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
 
     [DataField]
-    public Dictionary<Type, ObjectiveAmbientChaos> ObjectiveAmbientChaosRates = new();
+    public Dictionary<AmbientObjectiveChaosType, AmbientObjectiveChaos> AmbientChaosRates = new();
 
     private MobStateSystem _mobs = default!;
     private SharedObjectivesSystem _objectives = default!;
     private SharedRoleSystem _roles = default!;
 
-    [Dependency] private readonly IChatManager _chat = default!;
-
     private readonly Dictionary<EntityUid, TimeSpan> _firstSeenObjective = new();
+
+    private static readonly Dictionary<Type, AmbientObjectiveChaosType> TypeMapping = new()
+    {
+        { typeof(StealConditionComponent), AmbientObjectiveChaosType.Steal },
+        { typeof(KillPersonConditionComponent), AmbientObjectiveChaosType.Kill },
+    };
 
     public override void Initialize()
     {
@@ -76,7 +88,10 @@ public sealed partial class AntagObjectiveFactor : ChaosFactor
         var chaos = 0f;
         foreach (var component in _entityManager.GetComponents(objective))
         {
-            if (!ObjectiveAmbientChaosRates.TryGetValue(component.GetType(), out var ambient))
+            if (!TypeMapping.TryGetValue(component.GetType(), out var componentType))
+                continue;
+
+            if (!AmbientChaosRates.TryGetValue(componentType, out var ambient))
                 continue;
 
             if (!_firstSeenObjective.TryGetValue(objective, out var firstSeen))
@@ -91,7 +106,7 @@ public sealed partial class AntagObjectiveFactor : ChaosFactor
         return chaos;
     }
 
-    private float GetTimeDecayMultiplier(ObjectiveAmbientChaos ambient, TimeSpan firstSeen, TimeSpan curTime)
+    private float GetTimeDecayMultiplier(AmbientObjectiveChaos ambient, TimeSpan firstSeen, TimeSpan curTime)
     {
         if (ambient.ExpectedTime == TimeSpan.Zero || firstSeen.Add(ambient.ExpectedTime) >= curTime)
             return 1f;
