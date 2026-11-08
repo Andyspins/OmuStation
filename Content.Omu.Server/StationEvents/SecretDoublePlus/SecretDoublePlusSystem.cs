@@ -189,8 +189,8 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
             // We only ever try to select a given rule once across all iterations, even if it fails
             if (!scheduler.IgnoreIncompatible)
             {
-                primaryEvents.Remove(pick);
-                secondaryEvents.Remove(pick);
+                primaryEvents.RemoveAll(e => e.Proto.ID == pick.Proto.ID);
+                secondaryEvents.RemoveAll(e => e.Proto.ID == pick.Proto.ID);
             }
 
             if (GameTicker.ReadyPlayerCount() < pick.MinPlayers)
