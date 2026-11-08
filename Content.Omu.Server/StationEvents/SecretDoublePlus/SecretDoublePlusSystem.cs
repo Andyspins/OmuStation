@@ -297,7 +297,7 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
             // our chaos score in the wrong direction.
             // Thus, we penalize events with flipped signs by a configurable amount.
             if (targetChaos * selected.ChaosScore < 0)
-                fitScore *= scheduler.OppositeChaosDirectionEventPenalty;
+                fitScore *= scheduler.OppositeDirectionEventChance;
 
             adjustedWeights[selected] = selected.Weight * fitScore;
         }

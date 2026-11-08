@@ -1,4 +1,5 @@
 ﻿using System.Linq;
+using Content.Omu.Common.CCVar;
 using Content.Omu.Shared.StationEvents.SecretDoublePlus;
 using Content.Server.Chat.Managers;
 using Content.Server.Objectives.Components;
@@ -11,6 +12,24 @@ using Robust.Shared.Prototypes;
 using Robust.Shared.Timing;
 
 namespace Content.Omu.Server.StationEvents.SecretDoublePlus.ChaosFactors;
+
+/// <summary>
+///   Static mapping of internal game keys to enum types in the AmbientObjectiveChaosRatesPrototype file.
+/// </summary>
+internal static class ChaosTypeMaps
+{
+    internal static readonly Dictionary<string, AmbientPresenceChaosType> Presence = new()
+    {
+        { "InitialInfected", AmbientPresenceChaosType.Zombie },
+        { "Zombie", AmbientPresenceChaosType.Zombie },
+    };
+
+    internal static readonly Dictionary<Type, AmbientObjectiveChaosType> Objectives = new()
+    {
+        { typeof(StealConditionComponent), AmbientObjectiveChaosType.Steal },
+        { typeof(KillPersonConditionComponent), AmbientObjectiveChaosType.Kill },
+    };
+}
 
 [UsedImplicitly]
 public sealed partial class AntagObjectiveFactor : ChaosFactor
@@ -29,18 +48,6 @@ public sealed partial class AntagObjectiveFactor : ChaosFactor
     private SharedRoleSystem _roles = default!;
 
     private readonly Dictionary<EntityUid, TimeSpan> _firstSeenObjective = new();
-
-    private static readonly Dictionary<string, AmbientPresenceChaosType> PresenceTypeMap = new()
-    {
-        { "Zombie", AmbientPresenceChaosType.Zombie },
-        { "InitialInfected", AmbientPresenceChaosType.Zombie },
-    };
-
-    private static readonly Dictionary<Type, AmbientObjectiveChaosType> ObjectiveTypeMapping = new()
-    {
-        { typeof(StealConditionComponent), AmbientObjectiveChaosType.Steal },
-        { typeof(KillPersonConditionComponent), AmbientObjectiveChaosType.Kill },
-    };
 
     public override void Initialize()
     {
@@ -82,7 +89,7 @@ public sealed partial class AntagObjectiveFactor : ChaosFactor
         var chaos = 0f;
         foreach (var role in _roles.MindGetAllRoleInfo(mind))
         {
-            if (!PresenceTypeMap.TryGetValue(role.Prototype, out var presenceType))
+            if (!ChaosTypeMaps.Presence.TryGetValue(role.Prototype, out var presenceType))
                 continue;
 
             if (!_rates.PresenceRates.TryGetValue(presenceType, out var presence))
@@ -100,7 +107,7 @@ public sealed partial class AntagObjectiveFactor : ChaosFactor
         var chaos = 0f;
         foreach (var component in _entityManager.GetComponents(objective))
         {
-            if (!ObjectiveTypeMapping.TryGetValue(component.GetType(), out var componentType))
+            if (!ChaosTypeMaps.Objectives.TryGetValue(component.GetType(), out var componentType))
                 continue;
 
             if (!_rates.ObjectiveRates.TryGetValue(componentType, out var ambient))

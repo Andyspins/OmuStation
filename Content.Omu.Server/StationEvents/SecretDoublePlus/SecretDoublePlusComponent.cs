@@ -58,15 +58,15 @@ public sealed partial class SecretDoublePlusComponent : Component
     ///   Suggested range is [1.0, 4.0], but go crazy if you want to with [0, +inf)
     /// </summary>
     [DataField]
-    public float ChaosMatchingPower = 1.5f;
+    public float ChaosMatchingPower = 2f;
 
     /// <summary>
     ///   The percentage of event weight still used when an event moves the overall round chaos score further from 0.
-    ///   Values below 0 ensure we're pushing the round towards equilibrium (intended).
-    ///   Values above 0 prioritize weird snowbally event selection, don't use for serious modes.
+    ///   Values below 1 ensure we're pushing the round towards equilibrium (intended).
+    ///   Values above 1 prioritize weird snowbally event selection, don't use for serious modes.
     /// </summary>
     [DataField]
-    public float OppositeChaosDirectionEventPenalty = 0.25f;
+    public float OppositeDirectionEventChance = 0.05f;
 
     /// <summary>
     ///   The percentage of the starting chaos that should roughly be attributed to the primary round antag.
@@ -82,18 +82,6 @@ public sealed partial class SecretDoublePlusComponent : Component
     /// </summary>
     [DataField]
     public int RoundStartAntagCount = 3;
-
-    /// <summary>
-    ///   How much to change chaos per second per player in control of a humanoid.
-    /// </summary>
-    [DataField]
-    public float LivingChaosChange;
-
-    /// <summary>
-    ///   How much to change chaos per second per player in control of a ghost which can return to a body.
-    /// </summary>
-    [DataField]
-    public float DeadChaosChange;
 
     /// <summary>
     ///   Chaos change multiplier we're using.
@@ -191,6 +179,9 @@ public sealed partial class SecretDoublePlusComponent : Component
     [DataField]
     public ProtoId<WeightedRandomPrototype> RoundStartAntagsWeightTable = "SecretPlus"; // Keep using the old SecretPlus tables for now
 
+    /// <summary>
+    ///   List of chaos factors used when calculating change in chaos every tick.
+    /// </summary>
     [DataField]
     public List<ChaosFactor> ChaosFactors;
 }
