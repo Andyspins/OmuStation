@@ -28,7 +28,10 @@ public abstract partial class ChaosFactor
             elapsed = (float) curTime.Subtract(_lastRun).TotalSeconds;
 
         _lastRun = curTime;
-        return CalculateChaos(context) * elapsed;
+        var chaos = CalculateChaos(context) * elapsed;
+        SecretDoublePlusMetrics.ChaosFactor.WithLabels(GetType().Name, chaos < 0 ? "negative" : "positive").Inc(MathF.Abs(chaos));
+
+        return chaos;
     }
 
     protected abstract float CalculateChaos(ChaosContext context);

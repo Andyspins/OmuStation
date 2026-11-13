@@ -75,6 +75,9 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
 
     protected override void Added(EntityUid uid, SecretDoublePlusComponent scheduler, GameRuleComponent gameRule, GameRuleAddedEvent args)
     {
+        // Reset chaos score metric from previous rounds
+        SecretDoublePlusMetrics.ChaosScore.Set(0);
+
         // Set initial chaos score by player count
         var totalPlayers = GetTotalPlayerCount(_playerManager.Sessions);
         scheduler.ChaosScore = -1 *
@@ -100,6 +103,8 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
 
     protected override void ActiveTick(EntityUid uid, SecretDoublePlusComponent scheduler, GameRuleComponent gameRule, float frameTime)
     {
+        SecretDoublePlusMetrics.ChaosScore.Set(scheduler.ChaosScore);
+
         var ramping = GetRamping(scheduler);
         var speedup = _event.EventSpeedup;
         var variation = scheduler.ChaosChangeVariation;
@@ -129,6 +134,7 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
 
         if (ShouldSkipTick(scheduler))
         {
+            SecretDoublePlusMetrics.SkippedEvents.Inc();
             LogMessage("Skipping event tick");
             return;
         }
@@ -220,6 +226,7 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
 
     private void StartRule(SecretDoublePlusComponent scheduler, SelectedEvent selected)
     {
+        SecretDoublePlusMetrics.EventSelected.WithLabels(selected.Proto.ID).Inc();
         _ticker.AddGameRule(selected.Proto.ID);
         scheduler.ChaosScore += selected.ChaosScore;
     }
@@ -356,19 +363,17 @@ public sealed class SecretDoublePlusSystem : GameRuleSystem<SecretDoublePlusComp
     {
         var selected = _random.Pick(weights);
 
-        if (_verboseGameDirectoryChatLogs)
-        {
-            var weightSum = weights.Values.Sum();
-            LogMessage(
-                $"Attempting to run {selected.Proto?.ID ?? "NoOp"} \n" +
-                $"| Chaos Value: {selected.ChaosScore} \n" +
-                $"| Target Chaos: {targetChaos?.ToString() ?? "N/A"} \n" +
-                $"| Raw Weight: {selected.Weight} \n" +
-                $"| Chaos Adjusted Weight: {weights[selected]} \n" +
-                $"| Weight Sum: {weightSum} \n" +
-                $"| Roll Chance: {weights[selected] / weightSum * 100}%"
-            );
-        }
+        var weightSum = weights.Values.Sum();
+        LogMessage(
+            $"Attempting to run {selected.Proto?.ID ?? "NoOp"} \n" +
+            $"| Chaos Value: {selected.ChaosScore} \n" +
+            $"| Target Chaos: {targetChaos?.ToString() ?? "N/A"} \n" +
+            $"| Raw Weight: {selected.Weight} \n" +
+            $"| Chaos Adjusted Weight: {weights[selected]} \n" +
+            $"| Weight Sum: {weightSum} \n" +
+            $"| Roll Chance: {weights[selected] / weightSum * 100}%",
+            _verboseGameDirectoryChatLogs
+        );
 
         return selected;
     }

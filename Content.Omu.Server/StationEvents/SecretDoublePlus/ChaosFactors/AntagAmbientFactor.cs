@@ -1,6 +1,7 @@
 ﻿using System.Linq;
 using Content.Omu.Shared.StationEvents.SecretDoublePlus;
-using Content.Server.Chat.Managers;
+using Content.Server.Administration.Logs;
+using Content.Shared.Database;
 using Content.Shared.Mind;
 using Content.Shared.Mobs.Systems;
 using Content.Shared.Objectives.Systems;
@@ -14,7 +15,7 @@ namespace Content.Omu.Server.StationEvents.SecretDoublePlus.ChaosFactors;
 [UsedImplicitly]
 public sealed partial class AntagAmbientFactor : ChaosFactor
 {
-    [Dependency] private readonly IChatManager _chat = default!;
+    [Dependency] private readonly IAdminLogManager _adminLogger = default!;
     [Dependency] private readonly IComponentFactory _factory = default!;
     [Dependency] private readonly IEntityManager _entityManager = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
@@ -77,7 +78,7 @@ public sealed partial class AntagAmbientFactor : ChaosFactor
                 .Sum(objective => CalculateChaosForObjective(objective, curTime));
         }
 
-        _chat.SendAdminAnnouncement($"Antag Ambient Factor adding {chaos} chaos per second");
+        _adminLogger.Add(LogType.SecretDoublePlus, $"Antag Ambient Factor adding {chaos} chaos per second");
         return chaos;
     }
 
